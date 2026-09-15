@@ -47,36 +47,64 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
-# --- COBALT API MEDIA DOWNLOADER ---
-def download_via_cobalt(url, user_id):
+# --- MULTI-API MEDIA DOWNLOADER ---
+def download_media(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
-    api_url = "https://cobalt-api.kwiatek.xyz/"
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "url": url,
-        "videoQuality": "720"
-    }
+    video_url = None
 
-    response = requests.post(api_url, json=payload, headers=headers, timeout=15)
-    data = response.json()
+    # 1-Usul: Rapid / PubAPI Endpoint
+    try:
+        api1_url = f"https://api.vkrnot.ru/instagram?url={url}"
+        r = requests.get(api1_url, timeout=10)
+        data = r.json()
+        if "url" in data:
+            video_url = data["url"]
+        elif "data" in data and "video_url" in data["data"]:
+            video_url = data["data"]["video_url"]
+    except Exception as e:
+        print(f"1-API xatosi: {e}")
 
-    if "url" in data:
-        video_url = data["url"]
-        video_bytes = requests.get(video_url, stream=True, timeout=30)
-        file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
-        
-        with open(file_path, "wb") as f:
-            for chunk in video_bytes.iter_content(chunk_size=1024*1024):
-                if chunk:
-                    f.write(chunk)
-        return file_path
-    else:
-        raise Exception("API orqali videoni olib bo'lmadi.")
+    # 2-Usul: Cobalt API (Zaxira)
+    if not video_url:
+        try:
+            cobalt_url = "https://api.cobalt.tools/"
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+            payload = {"url": url, "videoQuality": "720"}
+            r = requests.post(cobalt_url, json=payload, headers=headers, timeout=10)
+            data = r.json()
+            if "url" in data:
+                video_url = data["url"]
+        except Exception as e:
+            print(f"2-API xatosi: {e}")
+
+    # 3-Usul: SaveFrom / Tikwm API (TikTok & Instagram uchun umumiy)
+    if not video_url:
+        try:
+            tik_url = f"https://www.tikwm.com/api/?url={url}"
+            r = requests.get(tik_url, timeout=10)
+            data = r.json()
+            if "data" in data and "play" in data["data"]:
+                video_url = data["data"]["play"]
+        except Exception as e:
+            print(f"3-API xatosi: {e}")
+
+    if not video_url:
+        raise Exception("Barcha API servislarida xatolik yuz berdi.")
+
+    # Videoni faylga saqlash
+    file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
+    video_bytes = requests.get(video_url, stream=True, timeout=30)
+    with open(file_path, "wb") as f:
+        for chunk in video_bytes.iter_content(chunk_size=1024*1024):
+            if chunk:
+                f.write(chunk)
+
+    return file_path
 
 # --- FLASK WEB SERVER ---
 @app.route("/")
@@ -125,7 +153,7 @@ def handle_link(message):
     status_msg = bot.reply_to(message, "⏳ Video yuklanmoqda, kuting...")
 
     try:
-        file_path = download_via_cobalt(url, user_id)
+        file_path = download_media(url, user_id)
 
         with open(file_path, 'rb') as video:
             bot.send_video(message.chat.id, video, caption="✅ Video yuklab olindi!")
@@ -137,7 +165,7 @@ def handle_link(message):
             os.remove(file_path)
 
     except Exception as e:
-        print(f"Yuklash xatosi: {e}")
+        print(f"Yuklashda umumiy xatolik: {e}")
         bot.edit_message_text("❌ Videoni yuklashda xatolik yuz berdi. Havolani tekshirib qayta yuboring.", message.chat.id, status_msg.message_id)
 
 # --- MAIN RUNNER ---
