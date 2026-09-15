@@ -57,14 +57,19 @@ def download_media(url, user_id):
     clean_url = url.split("?")[0]
     video_url = None
 
-    # 1. TikTok uchun ishlov berish
+# 1. TikTok uchun ishlov berish
     if "tiktok.com" in url:
-        tik_api = f"https://www.tikwm.com/api/?url={clean_url}"
-        r = requests.get(tik_api, timeout=15)
+        tik_api = "https://www.tikwm.com/api/"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        }
+        params = {"url": url}
+        
+        r = requests.get(tik_api, params=params, headers=headers, timeout=15)
         if r.status_code == 200:
             res = r.json()
-            if "data" in res and "play" in res["data"]:
-                video_url = res["data"]["play"]
+            if res.get("code") == 0 and "data" in res and "play" in res["data"]:
+                video_url = "https://www.tikwm.com" + res["data"]["play"] if res["data"]["play"].startswith("/") else res["data"]["play"]
 
     # 2. Instagram uchun ishlov berish (RapidAPI)
     elif "instagram.com" in url:
