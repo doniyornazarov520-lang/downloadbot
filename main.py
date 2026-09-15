@@ -2,6 +2,7 @@ import os
 import sqlite3
 import threading
 import time
+import traceback
 import requests
 from flask import Flask
 import telebot
@@ -47,58 +48,37 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
-# --- MULTI-API MEDIA DOWNLOADER ---
+# --- MEDIA DOWNLOADER LOGIC ---
 def download_media(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
+    # Bitta ochiq va barqaror API (Rapid/SnapSave analogi)
+    clean_url = url.split("?")[0]
+    api_endpoint = f"https://api.vkrnot.ru/instagram?url={clean_url}"
+    
+    response = requests.get(api_endpoint, timeout=15)
+    
+    if response.status_code != 200:
+        raise Exception(f"API Server Xatosi: Status Code {response.status_code}")
+        
+    data = response.json()
     video_url = None
 
-    # 1-Usul: Rapid / PubAPI Endpoint
-    try:
-        api1_url = f"https://api.vkrnot.ru/instagram?url={url}"
-        r = requests.get(api1_url, timeout=10)
-        data = r.json()
-        if "url" in data:
-            video_url = data["url"]
-        elif "data" in data and "video_url" in data["data"]:
+    if "url" in data:
+        video_url = data["url"]
+    elif "data" in data:
+        if isinstance(data["data"], dict) and "video_url" in data["data"]:
             video_url = data["data"]["video_url"]
-    except Exception as e:
-        print(f"1-API xatosi: {e}")
-
-    # 2-Usul: Cobalt API (Zaxira)
-    if not video_url:
-        try:
-            cobalt_url = "https://api.cobalt.tools/"
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/json"
-            }
-            payload = {"url": url, "videoQuality": "720"}
-            r = requests.post(cobalt_url, json=payload, headers=headers, timeout=10)
-            data = r.json()
-            if "url" in data:
-                video_url = data["url"]
-        except Exception as e:
-            print(f"2-API xatosi: {e}")
-
-    # 3-Usul: SaveFrom / Tikwm API (TikTok & Instagram uchun umumiy)
-    if not video_url:
-        try:
-            tik_url = f"https://www.tikwm.com/api/?url={url}"
-            r = requests.get(tik_url, timeout=10)
-            data = r.json()
-            if "data" in data and "play" in data["data"]:
-                video_url = data["data"]["play"]
-        except Exception as e:
-            print(f"3-API xatosi: {e}")
+        elif isinstance(data["data"], list) and len(data["data"]) > 0:
+            video_url = data["data"][0].get("url") or data["data"][0].get("video_url")
 
     if not video_url:
-        raise Exception("Barcha API servislarida xatolik yuz berdi.")
+        raise Exception(f"Video URL topilmadi. API Javobi: {str(data)[:200]}")
 
-    # Videoni faylga saqlash
     file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
     video_bytes = requests.get(video_url, stream=True, timeout=30)
+    
     with open(file_path, "wb") as f:
         for chunk in video_bytes.iter_content(chunk_size=1024*1024):
             if chunk:
@@ -165,8 +145,10 @@ def handle_link(message):
             os.remove(file_path)
 
     except Exception as e:
-        print(f"Yuklashda umumiy xatolik: {e}")
-        bot.edit_message_text("❌ Videoni yuklashda xatolik yuz berdi. Havolani tekshirib qayta yuboring.", message.chat.id, status_msg.message_id)
+        error_details = traceback.format_exc()
+        print(f"Xatolik: {error_details}")
+        # Aniq xatolikni chatga chiqarish (Debugging uchun)
+        bot.edit_message_text(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:300]}</code>", message.chat.id, status_msg.message_id, parse_mode="HTML")
 
 # --- MAIN RUNNER ---
 if __name__ == "__main__":
