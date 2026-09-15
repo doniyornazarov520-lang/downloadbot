@@ -56,7 +56,6 @@ def download_media(url, user_id):
 
     clean_url = url.split("?")[0]
     
-    # Ekraningizdagi aniq API Endpoint va Host
     api_url = "https://instagram-reels-downloader-api.p.rapidapi.com/download"
     headers = {
         "x-rapidapi-key": RAPIDAPI_KEY,
@@ -73,16 +72,24 @@ def download_media(url, user_id):
     data = response.json()
     video_url = None
 
-    # API javobidan video linkini olish
-    if "data" in data:
-        if isinstance(data["data"], dict) and "video_url" in data["data"]:
-            video_url = data["data"]["video_url"]
-        elif isinstance(data["data"], list) and len(data["data"]) > 0:
-            video_url = data["data"][0].get("url") or data["data"][0].get("video_url")
-    elif "download_url" in data:
-        video_url = data["download_url"]
-    elif "url" in data:
-        video_url = data["url"]
+    # API qaytargan tuzilmani to'g'ri ajratib olish
+    if isinstance(data, dict):
+        res_data = data.get("data", {})
+        if isinstance(res_data, dict):
+            # Turli mumkin bo'lgan kalitlarni ketma-ket tekshirish
+            video_url = (
+                res_data.get("video_url") or 
+                res_data.get("download_url") or 
+                res_data.get("media") or 
+                res_data.get("link")
+            )
+            # Agar 'data' ichida ro'yxat bo'lsa
+            if not video_url and "medias" in res_data and isinstance(res_data["medias"], list):
+                video_url = res_data["medias"][0].get("url")
+        elif isinstance(res_data, list) and len(res_data) > 0:
+            first_item = res_data[0]
+            if isinstance(first_item, dict):
+                video_url = first_item.get("url") or first_item.get("video_url")
 
     if not video_url:
         raise Exception(f"Video havola olinmadi. API javobi: {str(data)[:150]}")
