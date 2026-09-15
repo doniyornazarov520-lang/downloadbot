@@ -1,4 +1,5 @@
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -47,19 +48,33 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
+# --- LINKNI TOZALASH ---
+def clean_url(url):
+    clean = re.sub(r'\?.*$', '', url.strip())
+    return clean
+
 # --- MEDIA DOWNLOADING FUNCTION ---
 def download_video(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
+    cleaned_url = clean_url(url)
+
     ydl_opts = {
-        'format': 'best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': f'downloads/{user_id}_%(id)s.%(ext)s',
         'quiet': True,
         'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+        },
+        'geo_bypass': True,
     }
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(cleaned_url, download=True)
         filename = ydl.prepare_filename(info)
         return filename
 
