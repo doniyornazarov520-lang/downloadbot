@@ -9,8 +9,9 @@ import telebot
 
 # --- ENVIRONMENT VARIABLES ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = telebot.TeleBot(BOT_TOKEN)
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "14d05f5027msh8e9a1550c472f3cp1fdd32jsne97d7d63e73a")
 
+bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
 # --- DATABASE (SQLite) ---
@@ -48,48 +49,43 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
-# --- MEDIA DOWNLOADER LOGIC ---
+# --- INSTAGRAM REELS DOWNLOADER (RapidAPI) ---
 def download_media(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
     clean_url = url.split("?")[0]
+    
+    # Ekraningizdagi aniq API Endpoint va Host
+    api_url = "https://instagram-reels-downloader-api.p.rapidapi.com/download"
+    headers = {
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": "instagram-reels-downloader-api.p.rapidapi.com",
+        "Content-Type": "application/json"
+    }
+    params = {"url": clean_url}
+
+    response = requests.get(api_url, headers=headers, params=params, timeout=15)
+    
+    if response.status_code != 200:
+        raise Exception(f"RapidAPI Xatosi ({response.status_code}): {response.text[:150]}")
+
+    data = response.json()
     video_url = None
 
-    # 1-Manba: Cobalt API (Rasmiy backend)
-    try:
-        cobalt_endpoint = "https://api.cobalt.tools/"
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-        payload = {"url": clean_url, "videoQuality": "720"}
-        r = requests.post(cobalt_endpoint, json=payload, headers=headers, timeout=12)
-        
-        if r.status_code == 200:
-            data = r.json()
-            if "url" in data:
-                video_url = data["url"]
-            elif "picker" in data and len(data["picker"]) > 0:
-                video_url = data["picker"][0]["url"]
-    except Exception as e:
-        print(f"Cobalt xatosi: {e}")
-
-    # 2-Manba: Tikwm API (Zaxira)
-    if not video_url:
-        try:
-            tik_url = f"https://www.tikwm.com/api/?url={clean_url}"
-            r = requests.get(tik_url, timeout=12)
-            if r.status_code == 200:
-                data = r.json()
-                if "data" in data and "play" in data["data"]:
-                    video_url = data["data"]["play"]
-        except Exception as e:
-            print(f"Tikwm xatosi: {e}")
+    # API javobidan video linkini olish
+    if "data" in data:
+        if isinstance(data["data"], dict) and "video_url" in data["data"]:
+            video_url = data["data"]["video_url"]
+        elif isinstance(data["data"], list) and len(data["data"]) > 0:
+            video_url = data["data"][0].get("url") or data["data"][0].get("video_url")
+    elif "download_url" in data:
+        video_url = data["download_url"]
+    elif "url" in data:
+        video_url = data["url"]
 
     if not video_url:
-        raise Exception("Video faylini serverdan olib bo'lmadi. Serverlar band bo'lishi mumkin.")
+        raise Exception(f"Video havola olinmadi. API javobi: {str(data)[:150]}")
 
     # Videoni yuklab saqlash
     file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
@@ -122,9 +118,9 @@ def send_welcome(message):
     
     bot.send_message(
         message.chat.id,
-        f"Assalomu alaykum! Men Instagram va TikTok'dan video yuklab beruvchi botman.\n\n"
+        f"Assalomu alaykum! Men Instagram Reels yuklab beruvchi botman.\n\n"
         f"Sizning statusingiz: {status}\n\n"
-        f"Menga Instagram Reels yoki TikTok havolasini yuboring!"
+        f"Menga Instagram Reels havolasini yuboring!"
     )
 
 @bot.message_handler(func=lambda msg: True)
@@ -133,8 +129,8 @@ def handle_link(message):
     user_id = message.from_user.id
     limit, is_vip = check_user(user_id)
 
-    if not ("instagram.com" in url or "tiktok.com" in url or "youtu.be" in url or "youtube.com" in url):
-        bot.reply_to(message, "⚠️ Iltimos, faqat Instagram, TikTok yoki YouTube havolasini yuboring.")
+    if not ("instagram.com" in url or "tiktok.com" in url):
+        bot.reply_to(message, "⚠️ Iltimos, faqat Instagram yoki TikTok havolasini yuboring.")
         return
 
     if not is_vip and limit <= 0:
