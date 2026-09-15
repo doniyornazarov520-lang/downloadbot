@@ -1,11 +1,10 @@
 import os
-import re
 import sqlite3
 import threading
 import time
+import requests
 from flask import Flask
 import telebot
-import yt_dlp
 
 # --- ENVIRONMENT VARIABLES ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -48,37 +47,38 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
-# --- LINKNI TOZALASH ---
-def clean_url(url):
-    clean = re.sub(r'\?.*$', '', url.strip())
-    return clean
-
-# --- MEDIA DOWNLOADING FUNCTION ---
-def download_video(url, user_id):
+# --- COBALT API MEDIA DOWNLOADER ---
+def download_via_cobalt(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
-    cleaned_url = clean_url(url)
-
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': f'downloads/{user_id}_%(id)s.%(ext)s',
-        'quiet': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-        },
-        'geo_bypass': True,
+    api_url = "https://cobalt-api.kwiatek.xyz/"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "url": url,
+        "videoQuality": "720"
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(cleaned_url, download=True)
-        filename = ydl.prepare_filename(info)
-        return filename
+    response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+    data = response.json()
 
-# --- FLASK WEB SERVER (Ping uchun) ---
+    if "url" in data:
+        video_url = data["url"]
+        video_bytes = requests.get(video_url, stream=True, timeout=30)
+        file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
+        
+        with open(file_path, "wb") as f:
+            for chunk in video_bytes.iter_content(chunk_size=1024*1024):
+                if chunk:
+                    f.write(chunk)
+        return file_path
+    else:
+        raise Exception("API orqali videoni olib bo'lmadi.")
+
+# --- FLASK WEB SERVER ---
 @app.route("/")
 def home():
     return "Media Downloader Bot Is Live!"
@@ -125,7 +125,7 @@ def handle_link(message):
     status_msg = bot.reply_to(message, "⏳ Video yuklanmoqda, kuting...")
 
     try:
-        file_path = download_video(url, user_id)
+        file_path = download_via_cobalt(url, user_id)
 
         with open(file_path, 'rb') as video:
             bot.send_video(message.chat.id, video, caption="✅ Video yuklab olindi!")
