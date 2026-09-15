@@ -53,29 +53,45 @@ def download_media(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
-    # Bitta ochiq va barqaror API (Rapid/SnapSave analogi)
     clean_url = url.split("?")[0]
-    api_endpoint = f"https://api.vkrnot.ru/instagram?url={clean_url}"
-    
-    response = requests.get(api_endpoint, timeout=15)
-    
-    if response.status_code != 200:
-        raise Exception(f"API Server Xatosi: Status Code {response.status_code}")
-        
-    data = response.json()
     video_url = None
 
-    if "url" in data:
-        video_url = data["url"]
-    elif "data" in data:
-        if isinstance(data["data"], dict) and "video_url" in data["data"]:
-            video_url = data["data"]["video_url"]
-        elif isinstance(data["data"], list) and len(data["data"]) > 0:
-            video_url = data["data"][0].get("url") or data["data"][0].get("video_url")
+    # 1-Manba: Cobalt API (Rasmiy backend)
+    try:
+        cobalt_endpoint = "https://api.cobalt.tools/"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
+        payload = {"url": clean_url, "videoQuality": "720"}
+        r = requests.post(cobalt_endpoint, json=payload, headers=headers, timeout=12)
+        
+        if r.status_code == 200:
+            data = r.json()
+            if "url" in data:
+                video_url = data["url"]
+            elif "picker" in data and len(data["picker"]) > 0:
+                video_url = data["picker"][0]["url"]
+    except Exception as e:
+        print(f"Cobalt xatosi: {e}")
+
+    # 2-Manba: Tikwm API (Zaxira)
+    if not video_url:
+        try:
+            tik_url = f"https://www.tikwm.com/api/?url={clean_url}"
+            r = requests.get(tik_url, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                if "data" in data and "play" in data["data"]:
+                    video_url = data["data"]["play"]
+        except Exception as e:
+            print(f"Tikwm xatosi: {e}")
 
     if not video_url:
-        raise Exception(f"Video URL topilmadi. API Javobi: {str(data)[:200]}")
+        raise Exception("Video faylini serverdan olib bo'lmadi. Serverlar band bo'lishi mumkin.")
 
+    # Videoni yuklab saqlash
     file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
     video_bytes = requests.get(video_url, stream=True, timeout=30)
     
@@ -147,7 +163,6 @@ def handle_link(message):
     except Exception as e:
         error_details = traceback.format_exc()
         print(f"Xatolik: {error_details}")
-        # Aniq xatolikni chatga chiqarish (Debugging uchun)
         bot.edit_message_text(f"❌ Xatolik yuz berdi:\n<code>{str(e)[:300]}</code>", message.chat.id, status_msg.message_id, parse_mode="HTML")
 
 # --- MAIN RUNNER ---
