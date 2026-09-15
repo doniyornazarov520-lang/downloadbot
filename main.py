@@ -49,50 +49,50 @@ def decrease_limit(user_id):
     conn.commit()
     conn.close()
 
-# --- INSTAGRAM REELS DOWNLOADER (RapidAPI) ---
+# --- MEDIA DOWNLOADER (Instagram + TikTok) ---
 def download_media(url, user_id):
     if not os.path.exists("downloads"):
         os.makedirs("downloads")
 
     clean_url = url.split("?")[0]
-    
-    api_url = "https://instagram-reels-downloader-api.p.rapidapi.com/download"
-    headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": "instagram-reels-downloader-api.p.rapidapi.com",
-        "Content-Type": "application/json"
-    }
-    params = {"url": clean_url}
-
-    response = requests.get(api_url, headers=headers, params=params, timeout=15)
-    
-    if response.status_code != 200:
-        raise Exception(f"RapidAPI Xatosi ({response.status_code}): {response.text[:150]}")
-
-    data = response.json()
     video_url = None
 
-    # API qaytargan tuzilmani to'g'ri ajratib olish
-    if isinstance(data, dict):
-        res_data = data.get("data", {})
-        if isinstance(res_data, dict):
-            # Turli mumkin bo'lgan kalitlarni ketma-ket tekshirish
-            video_url = (
-                res_data.get("video_url") or 
-                res_data.get("download_url") or 
-                res_data.get("media") or 
-                res_data.get("link")
-            )
-            # Agar 'data' ichida ro'yxat bo'lsa
-            if not video_url and "medias" in res_data and isinstance(res_data["medias"], list):
-                video_url = res_data["medias"][0].get("url")
-        elif isinstance(res_data, list) and len(res_data) > 0:
-            first_item = res_data[0]
-            if isinstance(first_item, dict):
-                video_url = first_item.get("url") or first_item.get("video_url")
+    # 1. TikTok uchun ishlov berish
+    if "tiktok.com" in url:
+        tik_api = f"https://www.tikwm.com/api/?url={clean_url}"
+        r = requests.get(tik_api, timeout=15)
+        if r.status_code == 200:
+            res = r.json()
+            if "data" in res and "play" in res["data"]:
+                video_url = res["data"]["play"]
+
+    # 2. Instagram uchun ishlov berish (RapidAPI)
+    elif "instagram.com" in url:
+        api_url = "https://instagram-reels-downloader-api.p.rapidapi.com/download"
+        headers = {
+            "x-rapidapi-key": RAPIDAPI_KEY,
+            "x-rapidapi-host": "instagram-reels-downloader-api.p.rapidapi.com",
+            "Content-Type": "application/json"
+        }
+        params = {"url": clean_url}
+        response = requests.get(api_url, headers=headers, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, dict):
+                res_data = data.get("data", {})
+                if isinstance(res_data, dict):
+                    video_url = (
+                        res_data.get("video_url") or 
+                        res_data.get("download_url") or 
+                        res_data.get("media") or 
+                        res_data.get("link")
+                    )
+                    if not video_url and "medias" in res_data and isinstance(res_data["medias"], list):
+                        video_url = res_data["medias"][0].get("url")
 
     if not video_url:
-        raise Exception(f"Video havola olinmadi. API javobi: {str(data)[:150]}")
+        raise Exception("Video havolasini olib bo'lmadi. Havola to'g'riligini tekshiring.")
 
     # Videoni yuklab saqlash
     file_path = f"downloads/{user_id}_{int(time.time())}.mp4"
@@ -125,9 +125,9 @@ def send_welcome(message):
     
     bot.send_message(
         message.chat.id,
-        f"Assalomu alaykum! Men Instagram Reels yuklab beruvchi botman.\n\n"
+        f"Assalomu alaykum! Men Instagram Reels va TikTok videolarini yuklab beruvchi botman.\n\n"
         f"Sizning statusingiz: {status}\n\n"
-        f"Menga Instagram Reels havolasini yuboring!"
+        f"Menga Instagram yoki TikTok havolasini yuboring!"
     )
 
 @bot.message_handler(func=lambda msg: True)
@@ -144,7 +144,7 @@ def handle_link(message):
         bot.reply_to(
             message, 
             "❌ <b>Kunlik bepul limiteringiz tugadi!</b>\n\n"
-            "Limitsiz yuklash uchun <b>VIP obuna</b> xarid qiling yoki do'stlaringizga ulashing.",
+            "Limitsiz yuklash uchun <b>VIP obuna</b> xarid qiling.",
             parse_mode="HTML"
         )
         return
@@ -176,9 +176,16 @@ if __name__ == "__main__":
     
     print("Media Downloader Bot ishga tushdi...")
     
+    try:
+        bot.remove_webhook()
+    except Exception as e:
+        print(f"Webhook o'chirish xatosi: {e}")
+
+    time.sleep(1)
+
     while True:
         try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+            bot.polling(none_stop=True, interval=1, timeout=20)
         except Exception as e:
             print(f"Polling xatosi: {e}")
-            time.sleep(3)
+            time.sleep(5)
